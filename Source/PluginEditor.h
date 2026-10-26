@@ -37,20 +37,23 @@ private:
     elysian::LookAndFeel lnf;
 
     // delay
-    Knob dTime, dFeedback, dMix, dTone, dMod, dWow;
-    Toggle dPower, dSync, dTriplet;
+    Knob dTime, dFeedback, dMix, dSat, dTone, dMod, dWow, dStereo, dLow, dHigh, dDuck;
+    Toggle dPower, dSync, dTriplet, dDotted;
     Combo dDiv, dMode;
     elysian::IconButton tapButton { elysian::IconButton::Tap, elysian::delayAccent };
 
     // reverb
-    Knob rDecay, rPre, rMix, rSize, rDamp, rWidth;
-    Toggle rPower;
-    Combo rType;
+    Knob rDecay, rPre, rMix, rSize, rDamp, rWidth, rLow, rHigh, rDuck;
+    Toggle rPower, rFreeze;
+    Combo rType, rRouting;
+
+    // header
+    juce::Slider gainKnob;
+    std::unique_ptr<SliderAtt> gainAtt;
 
     elysian::EchoView echoView;
     elysian::DecayView decayView;
 
-    // header
     juce::ArrowButton prevBtn { "prev", 0.5f, juce::Colour (0xffd0d0d0) };
     juce::ArrowButton nextBtn { "next", 0.0f, juce::Colour (0xffd0d0d0) };
     juce::TextButton presetBtn;

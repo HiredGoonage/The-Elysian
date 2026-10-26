@@ -13,14 +13,16 @@ AudioProcessorValueTreeState::ParameterLayout DelayVerbProcessor::createLayout()
     auto ms  = [] (float v, int) { return String (roundToInt (v)) + " ms"; };
     auto db  = [] (float v, int) { return String (v, 1) + " dB"; };
     auto sec = [] (float v, int) { return String (v, 1) + " s"; };
+    auto hz  = [] (float v, int) { return v >= 1000.0f ? String (v * 0.001f, 1) + " kHz" : String (roundToInt (v)) + " Hz"; };
     auto fromText = [] (const String& t) { return t.getFloatValue(); };
+    auto fromHz = [] (const String& t) { const float v = t.getFloatValue(); return t.containsIgnoreCase ("k") ? v * 1000.0f : v; };
 
     auto addF = [&] (const char* id, const char* name, NormalisableRange<float> r, float def,
-                     std::function<String (float, int)> fmt)
+                     std::function<String (float, int)> fmt, std::function<float (const String&)> parse)
     {
         layout.add (std::make_unique<AudioParameterFloat> (
             ParameterID { id, 1 }, name, r, def,
-            Attr().withStringFromValueFunction (fmt).withValueFromStringFunction (fromText)));
+            Attr().withStringFromValueFunction (fmt).withValueFromStringFunction (parse)));
     };
     auto addB = [&] (const char* id, const char* name, bool def)
     {
@@ -33,26 +35,40 @@ AudioProcessorValueTreeState::ParameterLayout DelayVerbProcessor::createLayout()
 
     // Delay
     addB ("delayOn",       "Delay On", true);
-    addF ("delayTime",     "Delay Time",     { 10.0f, 2000.0f, 1.0f, 0.4f }, 400.0f, ms);
-    addF ("delayFeedback", "Delay Feedback", { 0.0f, 95.0f, 0.1f },           35.0f, pct);
-    addF ("delayMix",      "Delay Mix",      { 0.0f, 100.0f, 0.1f },          25.0f, pct);
+    addF ("delayTime",     "Delay Time",     { 10.0f, 2000.0f, 1.0f, 0.4f }, 400.0f, ms, fromText);
+    addF ("delayFeedback", "Delay Feedback", { 0.0f, 95.0f, 0.1f },           35.0f, pct, fromText);
+    addF ("delayMix",      "Delay Mix",      { 0.0f, 100.0f, 0.1f },          25.0f, pct, fromText);
     addB ("delaySync",     "Delay Sync", false);
     addC ("delayDiv",      "Delay Division", { "1/1", "1/2", "1/4", "1/8", "1/16", "1/32" }, 2);
     addB ("delayTriplet",  "Delay Triplet", false);
+    addB ("delayDotted",   "Delay Dotted", false);
     addC ("delayMode",     "Delay Mode", { "Digital", "Tape", "Analog" }, 0);
-    addF ("delayTone",     "Delay Tone", { -12.0f, 12.0f, 0.1f },              0.0f, db);
-    addF ("delayMod",      "Delay Mod",  { 0.0f, 100.0f, 0.1f },              10.0f, pct);
-    addF ("delayWow",      "Delay Wow/Flutter", { 0.0f, 100.0f, 0.1f },        5.0f, pct);
+    addF ("delaySat",      "Delay Saturation", { 0.0f, 100.0f, 0.1f },         0.0f, pct, fromText);
+    addF ("delayTone",     "Delay Tone", { -12.0f, 12.0f, 0.1f },              0.0f, db, fromText);
+    addF ("delayMod",      "Delay Mod",  { 0.0f, 100.0f, 0.1f },              10.0f, pct, fromText);
+    addF ("delayWow",      "Delay Wow/Flutter", { 0.0f, 100.0f, 0.1f },        5.0f, pct, fromText);
+    addF ("delayStereo",   "Delay Ping-Pong", { 0.0f, 100.0f, 0.1f },          0.0f, pct, fromText);
+    addF ("delayLowCut",   "Delay Low Cut",  { 20.0f, 1000.0f, 1.0f, 0.35f },  20.0f, hz, fromHz);
+    addF ("delayHighCut",  "Delay High Cut", { 1000.0f, 20000.0f, 1.0f, 0.35f }, 20000.0f, hz, fromHz);
+    addF ("delayDuck",     "Delay Duck",     { 0.0f, 100.0f, 0.1f },           0.0f, pct, fromText);
 
     // Reverb
     addB ("revOn",    "Reverb On", true);
-    addF ("revDecay", "Reverb Decay",     { 0.2f, 20.0f, 0.01f, 0.45f }, 2.8f, sec);
-    addF ("revPre",   "Reverb Pre-Delay", { 0.0f, 200.0f, 1.0f },        30.0f, ms);
-    addF ("revMix",   "Reverb Mix",       { 0.0f, 100.0f, 0.1f },        30.0f, pct);
-    addC ("revType",  "Reverb Type", { "Room", "Plate", "Hall" }, 1);
-    addF ("revSize",  "Reverb Size",      { 0.0f, 100.0f, 0.1f },        80.0f, pct);
-    addF ("revDamp",  "Reverb Damping",   { 0.0f, 100.0f, 0.1f },        35.0f, pct);
-    addF ("revWidth", "Reverb Width",     { 0.0f, 100.0f, 0.1f },       100.0f, pct);
+    addF ("revDecay", "Reverb Decay",     { 0.2f, 20.0f, 0.01f, 0.45f }, 2.8f, sec, fromText);
+    addF ("revPre",   "Reverb Pre-Delay", { 0.0f, 200.0f, 1.0f },        30.0f, ms, fromText);
+    addF ("revMix",   "Reverb Mix",       { 0.0f, 100.0f, 0.1f },        30.0f, pct, fromText);
+    addC ("revType",  "Reverb Type", { "Room", "Plate", "Hall", "Cathedral", "Smooth" }, 1);
+    addF ("revSize",  "Reverb Size",      { 0.0f, 100.0f, 0.1f },        80.0f, pct, fromText);
+    addF ("revDamp",  "Reverb Damping",   { 0.0f, 100.0f, 0.1f },        35.0f, pct, fromText);
+    addF ("revWidth", "Reverb Width",     { 0.0f, 100.0f, 0.1f },       100.0f, pct, fromText);
+    addF ("revLowCut",  "Reverb Low Cut",  { 20.0f, 1000.0f, 1.0f, 0.35f },  20.0f, hz, fromHz);
+    addF ("revHighCut", "Reverb High Cut", { 1000.0f, 20000.0f, 1.0f, 0.35f }, 20000.0f, hz, fromHz);
+    addF ("revDuck",    "Reverb Duck",     { 0.0f, 100.0f, 0.1f },           0.0f, pct, fromText);
+    addB ("revFreeze",  "Reverb Freeze", false);
+
+    // Global
+    addC ("routing", "Routing", { "Delay > Reverb", "Reverb > Delay", "Parallel" }, 0);
+    addF ("outGain", "Output Gain", { -24.0f, 12.0f, 0.1f }, 0.0f, db, fromText);
 
     return layout;
 }
@@ -66,11 +82,15 @@ DelayVerbProcessor::DelayVerbProcessor()
     auto get = [this] (const char* id) { return apvts.getRawParameterValue (id); };
     pDelayOn = get ("delayOn");   pDelayTime = get ("delayTime");   pFeedback = get ("delayFeedback");
     pDelayMix = get ("delayMix"); pSync = get ("delaySync");        pDiv = get ("delayDiv");
-    pTriplet = get ("delayTriplet"); pMode = get ("delayMode");     pTone = get ("delayTone");
-    pMod = get ("delayMod");      pWow = get ("delayWow");
+    pTriplet = get ("delayTriplet"); pDotted = get ("delayDotted"); pMode = get ("delayMode");
+    pSat = get ("delaySat"); pTone = get ("delayTone");    pMod = get ("delayMod");          pWow = get ("delayWow");
+    pStereo = get ("delayStereo"); pDLow = get ("delayLowCut");     pDHigh = get ("delayHighCut");
+    pDDuck = get ("delayDuck");
     pRevOn = get ("revOn");       pDecay = get ("revDecay");        pPre = get ("revPre");
     pRevMix = get ("revMix");     pType = get ("revType");          pSize = get ("revSize");
     pRevDamp = get ("revDamp");   pWidth = get ("revWidth");
+    pRLow = get ("revLowCut");    pRHigh = get ("revHighCut");      pRDuck = get ("revDuck");
+    pFreeze = get ("revFreeze");  pRouting = get ("routing");       pOutGain = get ("outGain");
 }
 
 bool DelayVerbProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -110,18 +130,113 @@ void DelayVerbProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 
     lastToneDb = 1.0e9f;
     for (auto& t : tone) t.clear();
-    lpState[0] = lpState[1] = 0.0f;
+    for (int c = 0; c < 2; ++c) lpState[c] = hcState[c] = hpState[c] = rHpState[c] = rLpState[c] = 0.0f;
     phMod = phWow = phFlut = 0.0;
+    duckEnv = 0.0f;
 
     fdn.prepare (sampleRate);
+    lex.prepare (sampleRate);
+    engine = bWantedEngine = (pType->load() > 3.5f) ? 0 : 1;
+    sEngine.reset (sampleRate, 0.04); sEngine.setCurrentAndTargetValue (1.0f);
 
-    sTime.reset (sampleRate, 0.12);  sTime.setCurrentAndTargetValue (pDelayTime->load());
-    sFb.reset (sampleRate, 0.03);    sFb.setCurrentAndTargetValue (pFeedback->load() * 0.01f);
-    sDMix.reset (sampleRate, 0.03);  sDMix.setCurrentAndTargetValue (pDelayMix->load() * 0.01f);
-    sDGate.reset (sampleRate, 0.03); sDGate.setCurrentAndTargetValue (pDelayOn->load() > 0.5f ? 1.0f : 0.0f);
-    sRMix.reset (sampleRate, 0.03);  sRMix.setCurrentAndTargetValue (pRevMix->load() * 0.01f);
-    sRGate.reset (sampleRate, 0.03); sRGate.setCurrentAndTargetValue (pRevOn->load() > 0.5f ? 1.0f : 0.0f);
-    sWidth.reset (sampleRate, 0.03); sWidth.setCurrentAndTargetValue (pWidth->load() * 0.01f);
+    sTime.reset (sampleRate, 0.12);   sTime.setCurrentAndTargetValue (pDelayTime->load());
+    sFb.reset (sampleRate, 0.03);     sFb.setCurrentAndTargetValue (pFeedback->load() * 0.01f);
+    sDMix.reset (sampleRate, 0.03);   sDMix.setCurrentAndTargetValue (pDelayMix->load() * 0.01f);
+    sDGate.reset (sampleRate, 0.03);  sDGate.setCurrentAndTargetValue (pDelayOn->load() > 0.5f ? 1.0f : 0.0f);
+    sStereo.reset (sampleRate, 0.05); sStereo.setCurrentAndTargetValue (pStereo->load() * 0.01f);
+    sRMix.reset (sampleRate, 0.03);   sRMix.setCurrentAndTargetValue (pRevMix->load() * 0.01f);
+    sRGate.reset (sampleRate, 0.03);  sRGate.setCurrentAndTargetValue (pRevOn->load() > 0.5f ? 1.0f : 0.0f);
+    sWidth.reset (sampleRate, 0.03);  sWidth.setCurrentAndTargetValue (pWidth->load() * 0.01f);
+    sOut.reset (sampleRate, 0.03);    sOut.setCurrentAndTargetValue (Decibels::decibelsToGain (pOutGain->load()));
+}
+
+// ------------------------------------------------------------------ delay stage
+void DelayVerbProcessor::runDelay (float& l, float& r, float duckGain)
+{
+    const float t = sTime.getNextValue(), fb = sFb.getNextValue();
+    const float dm = sDMix.getNextValue(), gate = sDGate.getNextValue(), st = sStereo.getNextValue();
+    const double sr = currentSampleRate;
+
+    phMod += bIncMod;   if (phMod >= 1.0) phMod -= 1.0;
+    phWow += bIncWow;   if (phWow >= 1.0) phWow -= 1.0;
+    phFlut += bIncFlut; if (phFlut >= 1.0) phFlut -= 1.0;
+
+    const float wowSin = std::sin ((float) (MathConstants<double>::twoPi * phWow));
+    const float flutSin = std::sin ((float) (MathConstants<double>::twoPi * phFlut));
+    const float baseSamples = t * 0.001f * (float) sr;
+
+    float delayed[2], f[2];
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        const float modSin = std::sin ((float) (MathConstants<double>::twoPi * (phMod + 0.25 * ch)));
+        const float modMs = bModAmt * 2.5f * modSin + bWowAmt * (1.2f * wowSin + 0.12f * flutSin);
+        const float dSamples = jlimit (2.0f, bMaxDelay, baseSamples + modMs * 0.001f * (float) sr);
+
+        delayed[ch] = delayLine.popSample (ch, dSamples);
+
+        // feedback path: mode filter -> high cut -> low cut
+        lpState[ch] += bLpA * (delayed[ch] - lpState[ch]);
+        hcState[ch] += bHcA * (lpState[ch] - hcState[ch]);
+        hpState[ch] += bHpA * (hcState[ch] - hpState[ch]);
+        f[ch] = hcState[ch] - hpState[ch];
+    }
+
+    // ping-pong: blend straight feedback into cross-fed feedback, and sum the input to the left line
+    const float mono = 0.5f * (l + r);
+    const float injL = l * (1.0f - st) + mono * st;
+    const float injR = r * (1.0f - st);
+    float wL = injL * gate + fb * (f[0] * (1.0f - st) + f[1] * st);
+    float wR = injR * gate + fb * (f[1] * (1.0f - st) + f[0] * st);
+
+    // saturation on everything written to the line (input + repeats), unity gain for small signals
+    if (bSatA > 1.001f)
+    {
+        wL = std::tanh (bSatA * wL) / bSatA;
+        wR = std::tanh (bSatA * wR) / bSatA;
+    }
+    delayLine.pushSample (0, wL);
+    delayLine.pushSample (1, wR);
+
+    const float wetG = dm * gate * duckGain * bMakeup;
+    l = l + tone[0].process (delayed[0]) * wetG;
+    r = r + tone[1].process (delayed[1]) * wetG;
+}
+
+// ------------------------------------------------------------------ reverb stage
+void DelayVerbProcessor::runReverb (float& l, float& r, float duckGain)
+{
+    const float rGate = sRGate.getNextValue(), rMix = sRMix.getNextValue(), width = sWidth.getNextValue();
+
+    float in[2] = { l * rGate, r * rGate };
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        rHpState[ch] += bRHpA * (in[ch] - rHpState[ch]);      // low cut
+        in[ch] -= rHpState[ch];
+        rLpState[ch] += bRLpA * (in[ch] - rLpState[ch]);      // high cut
+        in[ch] = rLpState[ch];
+    }
+
+    // switching between the FDN and Dattorro engines fades the wet signal out, swaps, and fades back in
+    if (engine != bWantedEngine && sEngine.getCurrentValue() <= 0.0005f)
+    {
+        engine = bWantedEngine;
+        if (engine == 0) fdn.reset(); else lex.reset();
+        sEngine.setTargetValue (1.0f);
+    }
+    const float eg = sEngine.getNextValue();
+
+    float wl, wr;
+    if (engine == 0) fdn.process (in[0], in[1], wl, wr);
+    else             lex.process (in[0], in[1], wl, wr);
+
+    const float mid = 0.5f * (wl + wr), side = 0.5f * (wl - wr) * width;
+    wl = mid + side;
+    wr = mid - side;
+
+    const float dryG = std::cos (rMix * MathConstants<float>::halfPi);
+    const float wetG = std::sin (rMix * MathConstants<float>::halfPi) * rGate * duckGain * eg;
+    l = l * dryG + wl * wetG;
+    r = r * dryG + wr * wetG;
 }
 
 // ------------------------------------------------------------------ processing
@@ -135,6 +250,7 @@ void DelayVerbProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&)
     if (buffer.getNumChannels() < 2) return;
 
     const double sr = currentSampleRate;
+    auto onePole = [sr] (float fc) { return 1.0f - std::exp (-MathConstants<float>::twoPi * jmin (fc, 0.45f * (float) sr) / (float) sr); };
 
     {   // input meter
         const float p = jmax (buffer.getMagnitude (0, 0, numSamples), buffer.getMagnitude (1, 0, numSamples));
@@ -154,7 +270,10 @@ void DelayVerbProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&)
 
         static const double beats[6] = { 4.0, 2.0, 1.0, 0.5, 0.25, 0.125 };
         const int div = jlimit (0, 5, (int) pDiv->load());
-        timeMs = (float) (60000.0 / bpm * beats[div] * (pTriplet->load() > 0.5f ? 2.0 / 3.0 : 1.0));
+        double feel = 1.0;
+        if (pDotted->load() > 0.5f) feel = 1.5;
+        else if (pTriplet->load() > 0.5f) feel = 2.0 / 3.0;
+        timeMs = (float) (60000.0 / bpm * beats[div] * feel);
     }
     timeMs = jlimit (10.0f, 4500.0f, timeMs);
 
@@ -162,11 +281,16 @@ void DelayVerbProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&)
     sFb.setTargetValue (pFeedback->load() * 0.01f);
     sDMix.setTargetValue (pDelayMix->load() * 0.01f);
     sDGate.setTargetValue (dOn ? 1.0f : 0.0f);
+    sStereo.setTargetValue (pStereo->load() * 0.01f);
 
     const int mode = jlimit (0, 2, (int) pMode->load());
-    const float cutoff = mode == 0 ? 18000.0f : (mode == 1 ? 4500.0f : 3000.0f);
-    const float drive  = mode == 0 ? 0.0f     : (mode == 1 ? 1.8f    : 1.2f);
-    const float lpA = 1.0f - std::exp (-MathConstants<float>::twoPi * jmin (cutoff, 0.45f * (float) sr) / (float) sr);
+    const float modeCut = mode == 0 ? 18000.0f : (mode == 1 ? 4500.0f : 3000.0f);
+    const float modeDrive = mode == 0 ? 1.0f : (mode == 1 ? 1.8f : 1.2f);
+    bSatA = modeDrive * (1.0f + 7.0f * pSat->load() * 0.01f);
+    bMakeup = 1.0f + 0.065f * (bSatA - 1.0f);        // keeps level roughly constant as saturation compresses
+    bLpA = onePole (modeCut);
+    bHcA = onePole (pDHigh->load());
+    bHpA = onePole (pDLow->load());
 
     const float toneDb = pTone->load();
     if (toneDb != lastToneDb)
@@ -175,67 +299,60 @@ void DelayVerbProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&)
         lastToneDb = toneDb;
     }
 
-    const float modAmt = pMod->load() * 0.01f;
-    const float wowAmt = pWow->load() * 0.01f;
-    const double incMod = 0.7 / sr, incWow = 0.55 / sr, incFlut = 6.5 / sr;
-    const float maxDelay = (float) delayLine.getMaximumDelayInSamples() - 4.0f;
+    bModAmt = pMod->load() * 0.01f;
+    bWowAmt = pWow->load() * 0.01f;
+    bIncMod = 0.7 / sr; bIncWow = 0.55 / sr; bIncFlut = 6.5 / sr;
+    bMaxDelay = (float) delayLine.getMaximumDelayInSamples() - 4.0f;
 
     // ---- reverb params
     sRMix.setTargetValue (pRevMix->load() * 0.01f);
     sRGate.setTargetValue (pRevOn->load() > 0.5f ? 1.0f : 0.0f);
     sWidth.setTargetValue (pWidth->load() * 0.01f);
-    fdn.setParams (pDecay->load(), pRevDamp->load() * 0.01f, pSize->load() * 0.01f,
-                   (int) pType->load(), pPre->load());
+    bRHpA = onePole (pRLow->load());
+    bRLpA = onePole (pRHigh->load());
+    {
+        const int type = jlimit (0, 4, (int) pType->load());
+        const bool freeze = pFreeze->load() > 0.5f;
+        bWantedEngine = type == 4 ? 0 : 1;
+        sEngine.setTargetValue (engine == bWantedEngine ? 1.0f : 0.0f);
+        fdn.setParams (pDecay->load(), pRevDamp->load() * 0.01f, pSize->load() * 0.01f, 2, pPre->load(), freeze);
+        lex.setParams (pDecay->load(), pRevDamp->load() * 0.01f, pSize->load() * 0.01f, jmin (type, 3), pPre->load(), freeze);
+    }
+
+    // ---- ducking + routing + output gain
+    const float dDuck = pDDuck->load() * 0.01f, rDuck = pRDuck->load() * 0.01f;
+    const int routing = jlimit (0, 2, (int) pRouting->load());
+    const float attack = 1.0f - std::exp (-1.0f / (0.005f * (float) sr));
+    const float release = 1.0f - std::exp (-1.0f / (0.25f * (float) sr));
+    sOut.setTargetValue (Decibels::decibelsToGain (pOutGain->load()));
 
     auto* chL = buffer.getWritePointer (0);
     auto* chR = buffer.getWritePointer (1);
-    float* data[2] = { chL, chR };
 
     for (int i = 0; i < numSamples; ++i)
     {
-        const float t = sTime.getNextValue(), fb = sFb.getNextValue();
-        const float dm = sDMix.getNextValue(), gate = sDGate.getNextValue();
+        float l = chL[i], r = chR[i];
 
-        phMod += incMod;  if (phMod >= 1.0) phMod -= 1.0;
-        phWow += incWow;  if (phWow >= 1.0) phWow -= 1.0;
-        phFlut += incFlut; if (phFlut >= 1.0) phFlut -= 1.0;
+        const float level = jmax (std::abs (l), std::abs (r));
+        duckEnv += (level - duckEnv) * (level > duckEnv ? attack : release);
+        const float duckAmt = jlimit (0.0f, 1.0f, duckEnv * 5.0f);
+        const float dg = 1.0f - dDuck * duckAmt, rg = 1.0f - rDuck * duckAmt;
 
-        const float wowSin = std::sin ((float) (MathConstants<double>::twoPi * phWow));
-        const float flutSin = std::sin ((float) (MathConstants<double>::twoPi * phFlut));
-        const float baseSamples = t * 0.001f * (float) sr;
-
-        for (int ch = 0; ch < 2; ++ch)
+        if (routing == 0)      { runDelay (l, r, dg); runReverb (l, r, rg); }
+        else if (routing == 1) { runReverb (l, r, rg); runDelay (l, r, dg); }
+        else
         {
-            const float modSin = std::sin ((float) (MathConstants<double>::twoPi * (phMod + 0.25 * ch)));
-            const float modMs = modAmt * 2.5f * modSin + wowAmt * (1.2f * wowSin + 0.12f * flutSin);
-            const float dSamples = jlimit (2.0f, maxDelay, baseSamples + modMs * 0.001f * (float) sr);
-
-            const float delayed = delayLine.popSample (ch, dSamples);
-
-            lpState[ch] += lpA * (delayed - lpState[ch]);
-            float f = lpState[ch];
-            if (drive > 0.0f) f = std::tanh (f * drive) / drive;
-
-            const float in = data[ch][i];
-            delayLine.pushSample (ch, in * gate + f * fb);
-
-            data[ch][i] = in + tone[ch].process (delayed) * dm * gate;
+            float dl = l, dr = r;
+            runDelay (dl, dr, dg);                 // dl - l = delay wet
+            float rl = l, rr = r;
+            runReverb (rl, rr, rg);                // reverb with its own dry
+            l = rl + (dl - l);
+            r = rr + (dr - r);
         }
 
-        // reverb is fed by the delay output
-        const float rGate = sRGate.getNextValue(), rMix = sRMix.getNextValue(), width = sWidth.getNextValue();
-        const float l = chL[i], r = chR[i];
-        float wl, wr;
-        fdn.process (l * rGate, r * rGate, wl, wr);
-
-        const float mid = 0.5f * (wl + wr), side = 0.5f * (wl - wr) * width;
-        wl = mid + side;
-        wr = mid - side;
-
-        const float dryG = std::cos (rMix * MathConstants<float>::halfPi);
-        const float wetG = std::sin (rMix * MathConstants<float>::halfPi) * rGate;
-        chL[i] = l * dryG + wl * wetG;
-        chR[i] = r * dryG + wr * wetG;
+        const float g = sOut.getNextValue();
+        chL[i] = l * g;
+        chR[i] = r * g;
     }
 
     {   // output meter
@@ -259,8 +376,13 @@ namespace
                                     { "delayMod", 25 }, { "revDecay", 4.0f }, { "revMix", 35 } } },
             { "Tape Echo Hall",   { { "delayMode", 1 }, { "delayTime", 520 }, { "delayFeedback", 48 }, { "delayTone", -3 },
                                     { "delayWow", 25 }, { "revType", 2 }, { "revDecay", 4.5f }, { "revMix", 25 } } },
-            { "Cathedral",        { { "delayMix", 15 }, { "revType", 2 }, { "revDecay", 9.0f }, { "revSize", 100 },
+            { "Cathedral",        { { "delayMix", 15 }, { "revType", 3 }, { "revDecay", 9.0f }, { "revSize", 100 },
                                     { "revDamp", 25 }, { "revMix", 45 }, { "revPre", 40 } } },
+            { "Dotted Ping-Pong", { { "delaySync", 1 }, { "delayDiv", 3 }, { "delayDotted", 1 }, { "delayStereo", 100 },
+                                    { "delayFeedback", 45 }, { "delayLowCut", 200 }, { "delayHighCut", 6000 },
+                                    { "delayMix", 35 }, { "revMix", 20 }, { "revDecay", 2.0f } } },
+            { "Ducked Vocal",     { { "delayTime", 360 }, { "delayFeedback", 40 }, { "delayMix", 40 }, { "delayDuck", 70 },
+                                    { "revDecay", 2.5f }, { "revMix", 30 }, { "revDuck", 50 }, { "revPre", 45 } } },
             { "Small Room",       { { "delayOn", 0 }, { "revType", 0 }, { "revDecay", 0.6f }, { "revSize", 40 },
                                     { "revMix", 18 }, { "revPre", 0 } } },
         };

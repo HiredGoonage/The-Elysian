@@ -5,7 +5,7 @@ using elysian::makeFont;
 
 namespace
 {
-    constexpr float refW = 1774.0f, refH = 887.0f;
+    constexpr float refW = 1774.0f, refH = 1075.0f;
 
     float levelToUi (float peak)
     {
@@ -28,12 +28,20 @@ DelayVerbEditor::DelayVerbEditor (DelayVerbProcessor& p)
     setupKnob (dTime,     "delayTime",     "TIME",       dc);
     setupKnob (dFeedback, "delayFeedback", "FEEDBACK",   dc);
     setupKnob (dMix,      "delayMix",      "MIX",        dc);
+    setupKnob (dSat,      "delaySat",      "SATURATION", dc);
     setupKnob (dTone,     "delayTone",     "TONE",       dc);
     setupKnob (dMod,      "delayMod",      "MOD",        dc);
     setupKnob (dWow,      "delayWow",      "WOW/FLUTTER", dc);
+    setupKnob (dStereo,   "delayStereo",   "PING-PONG",  dc);
+    setupKnob (dLow,      "delayLowCut",   "LOW CUT",    dc);
+    setupKnob (dHigh,     "delayHighCut",  "HIGH CUT",   dc);
+    setupKnob (dDuck,     "delayDuck",     "DUCK",       dc);
     setupToggle (dPower,   "delayOn",      "power",  dc);
     setupToggle (dSync,    "delaySync",    "switch", dc);
     setupToggle (dTriplet, "delayTriplet", "switch", dc);
+    setupToggle (dDotted,  "delayDotted",  "switch", dc);
+    dTriplet.b.onClick = [this] { if (dTriplet.b.getToggleState()) dDotted.b.setToggleState (false, sendNotificationSync); };
+    dDotted.b.onClick  = [this] { if (dDotted.b.getToggleState()) dTriplet.b.setToggleState (false, sendNotificationSync); };
     setupCombo (dDiv,  "delayDiv",  { "1/1", "1/2", "1/4", "1/8", "1/16", "1/32" });
     setupCombo (dMode, "delayMode", { "Digital", "Tape", "Analog" });
 
@@ -43,8 +51,21 @@ DelayVerbEditor::DelayVerbEditor (DelayVerbProcessor& p)
     setupKnob (rSize,  "revSize",  "SIZE",      rc);
     setupKnob (rDamp,  "revDamp",  "DAMPING",   rc);
     setupKnob (rWidth, "revWidth", "WIDTH",     rc);
+    setupKnob (rLow,  "revLowCut",  "LOW CUT",  rc);
+    setupKnob (rHigh, "revHighCut", "HIGH CUT", rc);
+    setupKnob (rDuck, "revDuck",    "DUCK",     rc);
     setupToggle (rPower, "revOn", "power", rc);
-    setupCombo (rType, "revType", { "Room", "Plate", "Hall" });
+    setupToggle (rFreeze, "revFreeze", "switch", rc);
+    setupCombo (rType, "revType", { "Room", "Plate", "Hall", "Cathedral", "Smooth" });
+    setupCombo (rRouting, "routing", { "Delay > Reverb", "Reverb > Delay", "Parallel" });
+
+    gainKnob.setSliderStyle (Slider::RotaryHorizontalVerticalDrag);
+    gainKnob.setRotaryParameters (MathConstants<float>::pi * 1.25f, MathConstants<float>::pi * 2.75f, true);
+    gainKnob.setTextBoxStyle (Slider::NoTextBox, false, 0, 0);
+    gainKnob.setPopupDisplayEnabled (true, true, this);
+    elysian::setAccent (gainKnob, Colour (0xffd9d9dc));
+    addAndMakeVisible (gainKnob);
+    gainAtt = std::make_unique<SliderAtt> (proc.apvts, "outGain", gainKnob);
 
     addAndMakeVisible (tapButton);
     tapButton.setTooltip ("Tap tempo");
@@ -70,8 +91,11 @@ DelayVerbEditor::DelayVerbEditor (DelayVerbProcessor& p)
 
     setResizable (true, true);
     setResizeLimits (600, 300, 2400, 1200);
-    getConstrainer()->setFixedAspectRatio (2.0);
-    setSize (1000, 500);
+    getConstrainer()->setFixedAspectRatio ((double) refW / (double) refH);
+    {
+        const int w = jlimit (600, 2400, (int) proc.apvts.state.getProperty ("uiWidth", 1000));
+        setSize (w, roundToInt ((float) w * refH / refW));
+    }
 
     startTimerHz (30);
 }
@@ -171,7 +195,7 @@ void DelayVerbEditor::paint (Graphics& g)
     }
 
     // ---- panels
-    auto dp = R (5, 130, 865, 735), rp = R (905, 130, 865, 735);
+    auto dp = R (5, 130, 865, 925), rp = R (905, 130, 865, 925);
     g.setGradientFill (ColourGradient (Colour (0xff1d1712), dp.getX(), dp.getY(), Colour (0xff0d0b0a), dp.getX(), dp.getBottom(), false));
     g.fillRoundedRectangle (dp, 14 * k);
     g.setColour (elysian::delayAccent.withAlpha (0.10f));
@@ -185,7 +209,7 @@ void DelayVerbEditor::paint (Graphics& g)
     // divider + signal-flow arrow
     g.setColour (Colour (0xff2a2b2e));
     g.drawLine (887 * k, 155 * k, 887 * k, 408 * k, 1.5f);
-    g.drawLine (887 * k, 470 * k, 887 * k, 825 * k, 1.5f);
+    g.drawLine (887 * k, 470 * k, 887 * k, 1030 * k, 1.5f);
     g.setColour (Colour (0xff17181b));
     g.fillEllipse (R (860, 411, 54, 54));
     g.setColour (Colour (0xff303236));
@@ -212,11 +236,15 @@ void DelayVerbEditor::paint (Graphics& g)
     // delay: sync column
     const auto labelCol = Colour (0xffcfc7ba);
     g.setColour (Colour (0xff3a342d));
-    g.drawLine (664 * k, 262 * k, 664 * k, 438 * k, 1.3f);
+    g.drawLine (664 * k, 262 * k, 664 * k, 458 * k, 1.3f);
     text ("SYNC",    R (686, 255, 120, 30), makeFont (21 * k, false, 0.10f), labelCol, Justification::centredLeft);
-    text ("TRIPLET", R (686, 410, 100, 30), makeFont (19 * k, false, 0.05f), labelCol, Justification::centredLeft);
+    text ("TRIPLET", R (686, 394, 100, 30), makeFont (19 * k, false, 0.05f), labelCol, Justification::centredLeft);
+    text ("DOTTED",  R (686, 428, 100, 30), makeFont (19 * k, false, 0.05f), labelCol, Justification::centredLeft);
     text ("MODE",    R (65, 516, 120, 30),  makeFont (21 * k, false, 0.10f), labelCol, Justification::centredLeft);
     text ("TYPE",    R (968, 516, 120, 30), makeFont (21 * k, false, 0.10f), Colour (0xffc9dcea), Justification::centredLeft);
+    text ("ROUTING", R (968, 676, 140, 30), makeFont (21 * k, false, 0.10f), Colour (0xffc9dcea), Justification::centredLeft);
+    text ("FREEZE",  R (968, 786, 110, 30), makeFont (21 * k, false, 0.10f), Colour (0xffc9dcea), Justification::centredLeft);
+    text ("GAIN",    R (1190, 98, 92, 22), makeFont (17 * k, false, 0.10f), Colour (0xff8c8c90), Justification::centred);
 }
 
 // ------------------------------------------------------------------ layout
@@ -236,20 +264,28 @@ void DelayVerbEditor::resized()
     {
         return Rectangle<float> (x * k, y * k, w * k, h * k).toNearestInt();
     };
+    proc.apvts.state.setProperty ("uiWidth", getWidth(), nullptr);
 
     // delay
     placeKnob (dTime,     k, 155, 343, 150, 100, 34, 249);
     placeKnob (dFeedback, k, 360, 341, 140, 100, 30, 249);
     placeKnob (dMix,      k, 560, 341, 140, 100, 30, 249);
-    placeKnob (dTone,     k, 348, 573, 105,  90, 30, 506);
-    placeKnob (dMod,      k, 527, 573, 105,  90, 30, 506);
-    placeKnob (dWow,      k, 733, 573, 105,  90, 30, 506);
+    placeKnob (dSat,      k, 338, 573, 105,  90, 30, 506);
+    placeKnob (dTone,     k, 484, 573, 105,  90, 30, 506);
+    placeKnob (dMod,      k, 630, 573, 105,  90, 30, 506);
+    placeKnob (dWow,      k, 775, 573, 105,  90, 30, 506);
+
+    placeKnob (dStereo, k, 155, 770, 105, 90, 30, 705);
+    placeKnob (dLow,    k, 348, 770, 105, 90, 30, 705);
+    placeKnob (dHigh,   k, 527, 770, 105, 90, 30, 705);
+    placeKnob (dDuck,   k, 733, 770, 105, 90, 30, 705);
 
     dPower.b.setBounds (R (771, 153, 56, 56));
     dSync.b.setBounds (R (687, 292, 66, 30));
     dDiv.c.setBounds (R (687, 341, 148, 42));
-    dTriplet.b.setBounds (R (771, 411, 44, 27));
-    dMode.c.setBounds (R (65, 552, 181, 45));
+    dTriplet.b.setBounds (R (771, 396, 44, 27));
+    dDotted.b.setBounds (R (771, 430, 44, 27));
+    dMode.c.setBounds (R (65, 552, 160, 45));
     tapButton.setBounds (R (211, 417, 38, 38));
 
     // reverb
@@ -260,11 +296,19 @@ void DelayVerbEditor::resized()
     placeKnob (rDamp,  k, 1443, 573, 105,  90, 30, 496);
     placeKnob (rWidth, k, 1627, 573, 105,  90, 30, 496);
 
+    placeKnob (rLow,  k, 1265, 770, 105, 90, 30, 705);
+    placeKnob (rHigh, k, 1443, 770, 105, 90, 30, 705);
+    placeKnob (rDuck, k, 1627, 770, 105, 90, 30, 705);
+
     rPower.b.setBounds (R (1677, 153, 56, 56));
     rType.c.setBounds (R (968, 552, 197, 45));
+    rRouting.c.setBounds (R (968, 710, 197, 45));
+    rFreeze.b.setBounds (R (1100, 784, 66, 30));
 
-    echoView.setBounds (R (45, 672, 798, 150));
-    decayView.setBounds (R (939, 672, 789, 150));
+    gainKnob.setBounds (R (1209, 38, 62, 62));
+
+    echoView.setBounds (R (45, 880, 798, 150));
+    decayView.setBounds (R (939, 880, 789, 150));
 
     // header
     prevBtn.setBounds (R (610, 62, 22, 20).withSizeKeepingCentre (roundToInt (16 * k), roundToInt (22 * k)));
@@ -370,7 +414,7 @@ void DelayVerbEditor::showSettingsMenu()
                      [safe = Component::SafePointer<DelayVerbEditor> (this), scales] (int r)
                      {
                          if (safe != nullptr && r > 0)
-                             safe->setSize (roundToInt (1000.0f * scales[r - 1]), roundToInt (500.0f * scales[r - 1]));
+                             safe->setSize (roundToInt (1000.0f * scales[r - 1]), roundToInt (1000.0f * scales[r - 1] * refH / refW));
                      });
 }
 

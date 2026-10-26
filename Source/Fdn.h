@@ -4,20 +4,23 @@
 #include <cmath>
 #include <algorithm>
 
-// 8-line feedback delay network reverb with input diffusion, per-line damping,
-// RT60-based decay, modulated lines, and pre-delay.
+// 16-line feedback delay network reverb:
+//   pre-delay -> early reflections (tapped from the pre-delayed input)
+//             -> input diffusion -> FDN (Hadamard mix, per-line damping, RT60 decay, modulated lines)
+// plus a freeze mode that holds the tail indefinitely.
 class FdnReverb
 {
 public:
-    static constexpr int N = 8;
+    static constexpr int N = 16;
+    static constexpr int numER = 6;
 
     void prepare (double sampleRate)
     {
         sr = sampleRate;
-        const int maxLine = (int) (sr * 0.32) + 16;
+        const int maxLine = (int) (sr * 0.34) + 16;
         for (auto& l : lines) l.init (maxLine);
-        preL.init ((int) (sr * 0.26) + 16);
-        preR.init ((int) (sr * 0.26) + 16);
+        preL.init ((int) (sr * 0.45) + 16);
+        preR.init ((int) (sr * 0.45) + 16);
 
         const float apMsL[2] = { 4.7f, 3.1f }, apMsR[2] = { 5.3f, 3.7f };
         for (int i = 0; i < 2; ++i)
@@ -27,17 +30,19 @@ public:
         }
 
         for (auto& s : lenSmooth) s.reset (sr, 0.10);
+        for (auto& s : erSmooth) s.reset (sr, 0.10);
         preSmooth.reset (sr, 0.05);
+        freezeSm.reset (sr, 0.08);
 
         for (int i = 0; i < N; ++i)
         {
-            modInc[i] = (0.11f + 0.037f * (float) i) / (float) sr;
+            modInc[i] = (0.09f + 0.031f * (float) i) / (float) sr;
             modPhase[i] = (float) i / (float) N;
         }
         modDepth = 0.0004f * (float) sr;
 
         reset();
-        setParams (2.8f, 0.35f, 0.8f, 1, 30.0f, true);
+        setParams (2.8f, 0.35f, 0.8f, 1, 30.0f, false, true);
     }
 
     void reset()
@@ -50,12 +55,17 @@ public:
     }
 
     // type: 0 Room, 1 Plate, 2 Hall
-    void setParams (float decaySec, float damp01, float size01, int type, float preMs, bool snap = false)
+    void setParams (float decaySec, float damp01, float size01, int type, float preMs,
+                    bool freeze, bool snap = false)
     {
-        static const float table[3][N] = {
-            {  7.9f,  9.7f, 11.3f, 13.1f, 15.7f, 17.9f, 19.9f, 23.3f },   // Room
-            { 18.7f, 22.1f, 25.7f, 29.3f, 33.1f, 37.9f, 42.7f, 47.9f },   // Plate
-            { 37.1f, 43.3f, 51.7f, 59.9f, 68.3f, 77.9f, 89.3f, 101.3f }   // Hall
+        static const float lo[3] = { 7.0f, 16.0f, 32.0f };
+        static const float hi[3] = { 34.0f, 62.0f, 118.0f };
+        static const float jit[N] = { 1.00f, 1.02f, 0.98f, 1.03f, 0.99f, 1.01f, 0.97f, 1.02f,
+                                      1.00f, 0.98f, 1.03f, 0.99f, 1.01f, 0.97f, 1.02f, 0.98f };
+        static const float er[3][numER][2] = {
+            { { 5.3f, 0.70f }, { 8.9f, 0.60f }, { 12.7f, 0.50f }, { 17.3f, 0.40f }, { 23.1f, 0.30f }, { 29.9f, 0.25f } },
+            { { 7.1f, 0.60f }, { 11.3f, 0.55f }, { 16.7f, 0.50f }, { 23.9f, 0.40f }, { 31.3f, 0.30f }, { 41.0f, 0.25f } },
+            { { 11.0f, 0.60f }, { 19.0f, 0.55f }, { 29.0f, 0.50f }, { 41.0f, 0.45f }, { 57.0f, 0.35f }, { 73.0f, 0.30f } }
         };
         static const float apGain[3] = { 0.50f, 0.70f, 0.60f };
 
@@ -65,11 +75,19 @@ public:
 
         for (int i = 0; i < N; ++i)
         {
-            const float lenMs = table[type][i] * scale;
+            const float lenMs = lo[type] * std::pow (hi[type] / lo[type], (float) i / (float) (N - 1)) * jit[i] * scale;
             const float lenSamples = lenMs * 0.001f * (float) sr;
             if (snap) lenSmooth[i].setCurrentAndTargetValue (lenSamples);
             else      lenSmooth[i].setTargetValue (lenSamples);
-            gain[i] = std::pow (10.0f, -3.0f * (lenMs * 0.001f) / decaySec);
+            gain[i] = std::pow (10.0f, -3.0f * (lenMs * 0.001f) / (decaySec * 1.17f));   // 1.17 = measured correction so RT60 matches the knob
+        }
+
+        for (int e = 0; e < numER; ++e)
+        {
+            const float t = er[type][e][0] * scale * 0.001f * (float) sr;
+            erGain[e] = er[type][e][1];
+            if (snap) erSmooth[e].setCurrentAndTargetValue (t);
+            else      erSmooth[e].setTargetValue (t);
         }
 
         const float fc = std::min (20000.0f * std::pow (0.075f, juce::jlimit (0.0f, 1.0f, damp01)),
@@ -82,20 +100,41 @@ public:
         const float pre = juce::jlimit (0.0f, 250.0f, preMs) * 0.001f * (float) sr;
         if (snap) preSmooth.setCurrentAndTargetValue (pre);
         else      preSmooth.setTargetValue (pre);
+
+        if (snap) freezeSm.setCurrentAndTargetValue (freeze ? 1.0f : 0.0f);
+        else      freezeSm.setTargetValue (freeze ? 1.0f : 0.0f);
+
+        // keep the wet level similar across decay times and types
+        outLevel = outScale * typeNorm[type] * std::pow (2.8f / decaySec, 0.3f);
     }
 
     void process (float inL, float inR, float& outL, float& outR)
     {
-        // pre-delay
+        const float fz = freezeSm.getNextValue();
         const float pd = std::max (1.0f, preSmooth.getNextValue());
-        float xl = preL.read (pd), xr = preR.read (pd);
-        preL.write (inL); preR.write (inR);
+
+        // pre-delayed input (read before write)
+        const float pl = preL.read (pd), pr = preR.read (pd);
+
+        // early reflections tapped from the pre-delay buffers
+        float erL = 0.0f, erR = 0.0f;
+        for (int e = 0; e < numER; ++e)
+        {
+            const float d = pd + erSmooth[e].getNextValue();
+            const float a = preL.read (d), b = preR.read (d);
+            if ((e & 1) == 0) { erL += erGain[e] * a; erR += erGain[e] * b; }
+            else              { erL += erGain[e] * b; erR += erGain[e] * a; }
+        }
+
+        preL.write (inL);
+        preR.write (inR);
 
         // input diffusion
-        xl = apL[1].process (apL[0].process (xl));
-        xr = apR[1].process (apR[0].process (xr));
+        const float xl = apL[1].process (apL[0].process (pl));
+        const float xr = apR[1].process (apR[0].process (pr));
 
-        // read + damp + decay gain
+        // read + damp + decay
+        const float lpEff = lpA + (1.0f - lpA) * fz;
         float z[N];
         for (int i = 0; i < N; ++i)
         {
@@ -105,13 +144,16 @@ public:
             const float m = std::sin (juce::MathConstants<float>::twoPi * modPhase[i]) * modDepth;
 
             const float y = lines[i].read (std::max (1.0f, d + m));
-            lp[i] += lpA * (y - lp[i]);
-            z[i] = lp[i] * gain[i];
+            lp[i] += lpEff * (y - lp[i]);
+            const float g = gain[i] + (1.0f - gain[i]) * fz;       // frozen: no decay
+            z[i] = lp[i] * g;
         }
 
-        // outputs: even lines -> L, odd lines -> R
-        outL = outScale * (z[0] + z[2] + z[4] + z[6]);
-        outR = outScale * (z[1] + z[3] + z[5] + z[7]);
+        float sumL = 0.0f, sumR = 0.0f;
+        for (int i = 0; i < N; i += 2) { sumL += z[i]; sumR += z[i + 1]; }
+        const float live = 1.0f - fz;
+        outL = outLevel * sumL + erScale * outLevel * live * erL;
+        outR = outLevel * sumR + erScale * outLevel * live * erR;
 
         // Hadamard mixing (orthogonal, energy preserving)
         float h[N];
@@ -125,13 +167,16 @@ public:
                     h[j + step] = a - b;
                 }
 
-        constexpr float norm = 0.35355339f;   // 1/sqrt(8)
+        constexpr float norm = 0.25f;   // 1/sqrt(16)
+        const float inj = inGain * live;
         for (int i = 0; i < N; ++i)
-            lines[i].write (h[i] * norm + ((i & 1) == 0 ? xl : xr) * inGain);
+            lines[i].write (h[i] * norm + ((i & 1) == 0 ? xl : xr) * inj);
     }
 
-    float outScale = 0.85f;
-    float inGain = 0.5f;
+    float outScale = 1.0f;
+    float typeNorm[3] = { 0.64f, 0.80f, 1.05f };   // per-type level calibration
+    float erScale = 0.35f;
+    float inGain = 0.35f;
 
 private:
     struct Line
@@ -185,7 +230,7 @@ private:
     Line lines[N];
     Line preL, preR;
     Allpass apL[2], apR[2];
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> lenSmooth[N], preSmooth;
-    float lp[N] {}, gain[N] {}, modPhase[N] {}, modInc[N] {};
-    float lpA = 0.5f, modDepth = 0.0f;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> lenSmooth[N], erSmooth[numER], preSmooth, freezeSm;
+    float lp[N] {}, gain[N] {}, modPhase[N] {}, modInc[N] {}, erGain[numER] {};
+    float lpA = 0.5f, modDepth = 0.0f, outLevel = 1.0f;
 };
