@@ -31,5 +31,4 @@ target_compile_definitions(DelayVerb PUBLIC
 target_link_libraries(DelayVerb
     PRIVATE juce::juce_audio_utils juce::juce_dsp
     PUBLIC juce::juce_recommended_config_flags
-           juce::juce_recommended_lib_flags
            juce::juce_recommended_warning_flags)
